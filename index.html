@@ -125,6 +125,27 @@ function computeOverall(signal,context,tod){
   const flowBear = signal.label.includes("SELL");
   const trendBull = context.trend==="UPTREND";
   const trendBear = context.trend==="DOWNTREND";
+
+  // Build enhanced conviction score
+  let conviction = signal.strength;
+
+  // Trend confirms flow — add bars
+  if(flowBull&&trendBull) conviction=Math.min(5,conviction+1);
+  if(flowBear&&trendBear) conviction=Math.min(5,conviction+1);
+
+  // Trend conflicts with flow — remove bars
+  if(flowBull&&trendBear) conviction=Math.max(1,conviction-1);
+  if(flowBear&&trendBull) conviction=Math.max(1,conviction-1);
+
+  // Good time of day — add bar
+  if(goodTime) conviction=Math.min(5,conviction+1);
+
+  // Strong unusual flow — add bar
+  if(signal.ucalls.length>3||signal.uputs.length>3) conviction=Math.min(5,conviction+1);
+
+  // Set conviction back on signal
+  signal.conviction = conviction;
+
   if(!goodTime)return{label:`CAUTION — ${tod.label}`,color:C.yellow,desc:tod.tip};
   if(flowBull&&trendBull)return{label:"HIGH CONFIDENCE — BUY BIAS",color:C.green,desc:"Order flow AND the overall trend agree. This is when signals are most reliable. Look for a call option."};
   if(flowBear&&trendBear)return{label:"HIGH CONFIDENCE — SELL BIAS",color:C.red,desc:"Order flow AND the overall trend agree to the downside. Look for a put option."};
