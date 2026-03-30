@@ -48,7 +48,7 @@ async function getQuote(sym){
 
 async function getExpirations(sym){
   try{
-    const r = await fetch(`${BASE}/markets/options/expirations?symbol=${sym}`,{headers:{Authorization:`Bearer ${TOKEN}`,Accept:"application/json"}});
+    const r = await fetch(`${BASE}/markets/options/expirations?symbol=${sym}&includeAllRoots=true`,{headers:{Authorization:`Bearer ${TOKEN}`,Accept:"application/json"}});
     const d = await r.json();
     return d?.expirations?.date??[];
   }catch{return [];}
