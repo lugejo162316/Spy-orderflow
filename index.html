@@ -15,291 +15,534 @@
     ::-webkit-scrollbar-thumb{background:#1e2530;border-radius:2px}
     @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
     @keyframes slideIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
+    select option{background:#0f1318;color:#ffffff}
   </style>
 </head>
 <body>
-  <div id="root"></div>
-  <script type="text/babel">
-    const C = {
-      bg:"#0a0c0f",panel:"#0f1318",border:"#1e2530",
-      green:"#00e5a0",red:"#ff4466",yellow:"#f5c518",
-      blue:"#4da6ff",purple:"#b388ff",text:"#d8e4f0",
-      muted:"#6b7c93",bright:"#ffffff",orange:"#ff9f43"
-    };
-    const TOKEN = "YOUR_TRADIER_KEY_HERE";
-    const BASE = "https://api.tradier.com/v1";
-    const font = "'Inter',sans-serif";
-    const rand = (a,b) => Math.random()*(b-a)+a;
-    const clamp = (v,a,b) => Math.min(Math.max(v,a),b);
-    const fmtP = n => n>=1000000?`$${(n/1000000).toFixed(2)}M`:n>=1000?`$${(n/1000).toFixed(0)}K`:`$${n}`;
+<div id="root"></div>
+<script type="text/babel">
 
-    async function getSPYQuote(){
-      try{
-        const r = await fetch(`${BASE}/markets/quotes?symbols=SPY`,{headers:{Authorization:`Bearer ${TOKEN}`,Accept:"application/json"}});
-        const d = await r.json();
-        const q = d?.quotes?.quote;
-        return {price:q?.last??q?.close??578,change:q?.change??0,pct:q?.change_percentage??0};
-      }catch{return {price:578,change:0,pct:0};}
-    }
-    async function getExpirations(){
-      try{
-        const r = await fetch(`${BASE}/markets/options/expirations?symbol=SPY`,{headers:{Authorization:`Bearer ${TOKEN}`,Accept:"application/json"}});
-        const d = await r.json();
-        return d?.expirations?.date??[];
-      }catch{return [];}
-    }
-    async function getChain(exp){
-      try{
-        const r = await fetch(`${BASE}/markets/options/chains?symbol=SPY&expiration=${exp}&greeks=true`,{headers:{Authorization:`Bearer ${TOKEN}`,Accept:"application/json"}});
-        const d = await r.json();
-        return d?.options?.option??[];
-      }catch{return [];}
-    }
+const C = {
+  bg:"#0a0c0f",panel:"#0f1318",border:"#1e2530",
+  green:"#00e5a0",red:"#ff4466",yellow:"#f5c518",
+  blue:"#4da6ff",purple:"#b388ff",text:"#d8e4f0",
+  muted:"#6b7c93",bright:"#ffffff",orange:"#ff9f43"
+};
 
-    function buildSignal(chain,price){
-      if(!chain.length)return null;
-      const near = chain.filter(o=>Math.abs(o.strike-price)<price*0.04);
-      const calls = near.filter(o=>o.option_type==="call");
-      const puts  = near.filter(o=>o.option_type==="put");
-      const cv = calls.reduce((a,o)=>a+(o.volume||0),0);
-      const pv = puts.reduce((a,o)=>a+(o.volume||0),0);
-      const pcr = cv>0?+(pv/cv).toFixed(2):1.0;
-      const ucalls = chain.filter(o=>o.option_type==="call"&&(o.volume||0)>(o.open_interest||0)*0.4&&(o.volume||0)>50);
-      const uputs  = chain.filter(o=>o.option_type==="put" &&(o.volume||0)>(o.open_interest||0)*0.4&&(o.volume||0)>50);
-      const coi = calls.reduce((a,o)=>a+(o.open_interest||0),0);
-      const poi = puts.reduce((a,o)=>a+(o.open_interest||0),0);
-      let score=0;
-      if(pcr<0.7)score+=2;else if(pcr<0.9)score+=1;
-      else if(pcr>1.3)score-=2;else if(pcr>1.1)score-=1;
-      if(ucalls.length>uputs.length+1)score+=1;
-      else if(uputs.length>ucalls.length+1)score-=1;
-      const map=[
-        {min:2.5,label:"STRONG BUY",color:C.green,icon:"▲▲",strength:5},
-        {min:1,label:"BUY",color:C.green,icon:"▲",strength:4},
-        {min:-0.5,label:"NEUTRAL",color:C.yellow,icon:"◆",strength:3},
-        {min:-2,label:"SELL",color:C.red,icon:"▼",strength:2},
-        {min:-999,label:"STRONG SELL",color:C.red,icon:"▼▼",strength:1},
-      ];
-      const s=map.find(m=>score>=m.min);
-      return {...s,pcr,cv,pv,coi,poi,ucalls,uputs};
-    }
+const TOKEN = "RGvMACYYhiKvk0CLYYrlcm447Pia";
+const BASE = "https://api.tradier.com/v1";
+const font = "'Inter',sans-serif";
+const rand = (a,b) => Math.random()*(b-a)+a;
+const clamp = (v,a,b) => Math.min(Math.max(v,a),b);
+const fmtP = n => n>=1000000?`$${(n/1000000).toFixed(2)}M`:n>=1000?`$${(n/1000).toFixed(0)}K`:`$${n}`;
 
-    function getAdvice(label){
-      return {
-        "STRONG BUY":"Heavy call buying on SPY. Action: buy a call 1–2 strikes above current price, 7–14 days out. Risk max $100–150.",
-        "BUY":"More calls than puts. Bullish flow. Action: consider a call option with 7–14 days to expiry.",
-        "NEUTRAL":"Mixed signals. No clear edge. Action: stay flat and wait for a clearer setup.",
-        "SELL":"Put flow elevated. Action: consider a put 1–2 strikes below current price, 7–14 days out.",
-        "STRONG SELL":"Aggressive put buying. Action: buy puts. Avoid buying calls right now.",
-      }[label]||"";
-    }
+// ── Tradier API ───────────────────────────────────────────
+async function getQuote(sym){
+  try{
+    const r = await fetch(`${BASE}/markets/quotes?symbols=${sym}`,{headers:{Authorization:`Bearer ${TOKEN}`,Accept:"application/json"}});
+    const d = await r.json();
+    const q = d?.quotes?.quote;
+    return {price:q?.last??q?.close??578,change:q?.change??0,pct:q?.change_percentage??0};
+  }catch{return {price:sym==="SPY"?578:5780,change:0,pct:0};}
+}
 
-    function getTimeOfDay(){
-      const h=new Date().getHours(),m=new Date().getMinutes();
-      if(h<9||(h===9&&m<30))return{label:"Pre-Market",color:C.yellow,tip:"Market not open yet. Wait for 9:30 AM."};
-      if(h===9)return{label:"Market Open",color:C.orange,tip:"Very volatile. Many traders wait 15–30 min after open."};
-      if(h>=10&&h<12)return{label:"Morning Session",color:C.green,tip:"Best time to trade. Volume and trends are usually clear."};
-      if(h>=12&&h<14)return{label:"Lunch Hours",color:C.yellow,tip:"Volume drops. Signals less reliable right now."};
-      if(h>=14&&h<15)return{label:"Afternoon",color:C.green,tip:"Volume picking back up. Good window if signal is clear."};
-      if(h>=15&&h<16)return{label:"Power Hour",color:C.orange,tip:"Big moves but also big reversals. Be careful."};
-      return{label:"After Hours",color:C.muted,tip:"Market closed. Review today and plan for tomorrow."};
-    }
+async function getExpirations(sym){
+  try{
+    const r = await fetch(`${BASE}/markets/options/expirations?symbol=${sym}`,{headers:{Authorization:`Bearer ${TOKEN}`,Accept:"application/json"}});
+    const d = await r.json();
+    return d?.expirations?.date??[];
+  }catch{return [];}
+}
 
-    function Card({children,mt=0}){
-      return <div style={{margin:`${mt}px 16px 14px`,background:C.panel,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden"}}>{children}</div>;
-    }
-    function CardHead({title,sub}){
-      return(
-        <div style={{padding:"10px 16px",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <span style={{fontSize:12,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em"}}>{title}</span>
-          {sub&&<span style={{fontSize:11,color:C.muted}}>{sub}</span>}
+async function getChain(sym,exp){
+  try{
+    const r = await fetch(`${BASE}/markets/options/chains?symbol=${sym}&expiration=${exp}&greeks=true`,{headers:{Authorization:`Bearer ${TOKEN}`,Accept:"application/json"}});
+    const d = await r.json();
+    return d?.options?.option??[];
+  }catch{return [];}
+}
+
+async function getHistory(sym){
+  try{
+    const end = new Date().toISOString().split("T")[0];
+    const start = new Date(Date.now()-60*24*60*60*1000).toISOString().split("T")[0];
+    const r = await fetch(`${BASE}/markets/history?symbol=${sym}&interval=daily&start=${start}&end=${end}`,{headers:{Authorization:`Bearer ${TOKEN}`,Accept:"application/json"}});
+    const d = await r.json();
+    return d?.history?.day??[];
+  }catch{return [];}
+}
+
+// ── Signal ───────────────────────────────────────────────
+function buildSignal(chain,price){
+  if(!chain.length)return null;
+  const near = chain.filter(o=>Math.abs(o.strike-price)<price*0.04);
+  const calls = near.filter(o=>o.option_type==="call");
+  const puts  = near.filter(o=>o.option_type==="put");
+  const cv = calls.reduce((a,o)=>a+(o.volume||0),0);
+  const pv = puts.reduce((a,o)=>a+(o.volume||0),0);
+  const pcr = cv>0?+(pv/cv).toFixed(2):1.0;
+  const ucalls = chain.filter(o=>o.option_type==="call"&&(o.volume||0)>(o.open_interest||0)*0.4&&(o.volume||0)>50);
+  const uputs  = chain.filter(o=>o.option_type==="put" &&(o.volume||0)>(o.open_interest||0)*0.4&&(o.volume||0)>50);
+  const coi = calls.reduce((a,o)=>a+(o.open_interest||0),0);
+  const poi = puts.reduce((a,o)=>a+(o.open_interest||0),0);
+  let score=0;
+  if(pcr<0.7)score+=2;else if(pcr<0.9)score+=1;
+  else if(pcr>1.3)score-=2;else if(pcr>1.1)score-=1;
+  if(ucalls.length>uputs.length+1)score+=1;
+  else if(uputs.length>ucalls.length+1)score-=1;
+  const map=[
+    {min:2.5,label:"STRONG BUY",color:C.green,icon:"▲▲",strength:5},
+    {min:1,label:"BUY",color:C.green,icon:"▲",strength:4},
+    {min:-0.5,label:"NEUTRAL",color:C.yellow,icon:"◆",strength:3},
+    {min:-2,label:"SELL",color:C.red,icon:"▼",strength:2},
+    {min:-999,label:"STRONG SELL",color:C.red,icon:"▼▼",strength:1},
+  ];
+  const s=map.find(m=>score>=m.min);
+  return {...s,pcr,cv,pv,coi,poi,ucalls,uputs};
+}
+
+function buildContext(price,history,ticker){
+  const closes = history.map(d=>d.close).filter(Boolean);
+  const ma20 = closes.length>=20?+(closes.slice(-20).reduce((a,b)=>a+b,0)/20).toFixed(2):null;
+  const ma50 = closes.length>=50?+(closes.slice(-50).reduce((a,b)=>a+b,0)/50).toFixed(2):null;
+  const support1 = +(price - price*0.008).toFixed(2);
+  const support2 = +(price - price*0.018).toFixed(2);
+  const resist1  = +(price + price*0.007).toFixed(2);
+  const resist2  = +(price + price*0.016).toFixed(2);
+  const aboveMa20 = ma20?price>ma20:true;
+  const aboveMa50 = ma50?price>ma50:true;
+  let trend,trendColor,trendDesc;
+  if(aboveMa20&&aboveMa50){trend="UPTREND";trendColor=C.green;trendDesc=`${ticker} is above both its 20-day and 50-day averages. Big picture is bullish. Look for buy signals.`;}
+  else if(!aboveMa20&&!aboveMa50){trend="DOWNTREND";trendColor=C.red;trendDesc=`${ticker} is below both averages. Big picture is bearish. Be cautious buying calls.`;}
+  else{trend="MIXED";trendColor=C.yellow;trendDesc=`${ticker} is between its key averages. No clear trend. Higher risk — wait for clarity.`;}
+  return {trend,trendColor,trendDesc,support1,support2,resist1,resist2,ma20,ma50,aboveMa20,aboveMa50};
+}
+
+function computeOverall(signal,context,tod){
+  if(!signal||!context)return null;
+  const goodTime = tod.label==="Morning Session"||tod.label==="Afternoon";
+  const flowBull = signal.label.includes("BUY");
+  const flowBear = signal.label.includes("SELL");
+  const trendBull = context.trend==="UPTREND";
+  const trendBear = context.trend==="DOWNTREND";
+  if(!goodTime)return{label:`CAUTION — ${tod.label}`,color:C.yellow,desc:tod.tip};
+  if(flowBull&&trendBull)return{label:"HIGH CONFIDENCE — BUY BIAS",color:C.green,desc:"Order flow AND the overall trend agree. This is when signals are most reliable. Look for a call option."};
+  if(flowBear&&trendBear)return{label:"HIGH CONFIDENCE — SELL BIAS",color:C.red,desc:"Order flow AND the overall trend agree to the downside. Look for a put option."};
+  if(flowBull&&trendBear)return{label:"CONFLICTING SIGNALS",color:C.yellow,desc:"Flow says buy but the trend is down. These cancel out. Better to wait for clarity."};
+  if(flowBear&&trendBull)return{label:"CONFLICTING SIGNALS",color:C.yellow,desc:"Flow says sell but the trend is up. These cancel out. Better to wait for clarity."};
+  return{label:"NEUTRAL — NO CLEAR EDGE",color:C.muted,desc:"No strong signal either way. Sitting out is a valid choice — protecting capital is part of trading."};
+}
+
+function getAdvice(label,ticker){
+  return{
+    "STRONG BUY":`Heavy call buying on ${ticker}. Action: buy a call 1–2 strikes above current price, 7–14 days out. Risk max $100–150.`,
+    "BUY":`More calls than puts on ${ticker}. Bullish flow. Action: consider a call option with 7–14 days to expiry.`,
+    "NEUTRAL":`Mixed signals on ${ticker}. No clear edge. Action: stay flat and wait for a clearer setup.`,
+    "SELL":`Put flow elevated on ${ticker}. Action: consider a put 1–2 strikes below current price, 7–14 days out.`,
+    "STRONG SELL":`Aggressive put buying on ${ticker}. Action: buy puts. Avoid buying calls right now.`,
+  }[label]||"";
+}
+
+function getTimeOfDay(){
+  const h=new Date().getHours(),m=new Date().getMinutes();
+  if(h<9||(h===9&&m<30))return{label:"Pre-Market",color:C.yellow,tip:"Market not open yet. Wait for 9:30 AM before trading."};
+  if(h===9)return{label:"Market Open",color:C.orange,tip:"Very volatile right now. Many traders wait 15–30 min after open."};
+  if(h>=10&&h<12)return{label:"Morning Session",color:C.green,tip:"Best time to trade. Volume and trends are usually clear."};
+  if(h>=12&&h<14)return{label:"Lunch Hours",color:C.yellow,tip:"Volume drops at lunch. Signals are less reliable right now."};
+  if(h>=14&&h<15)return{label:"Afternoon",color:C.green,tip:"Volume picking back up. Good window if signal is clear."};
+  if(h>=15&&h<16)return{label:"Power Hour",color:C.orange,tip:"Big moves happen but also big reversals. Be careful."};
+  return{label:"After Hours",color:C.muted,tip:"Market closed. Review today and plan for tomorrow."};
+}
+
+// Simulated news events (rotate by day of week)
+function getTodayNews(){
+  const events=[
+    {time:"8:30 AM",event:"Jobs Report (NFP)",impact:"HIGH",color:C.red},
+    {time:"10:00 AM",event:"Consumer Confidence",impact:"MED",color:C.yellow},
+    {time:"2:00 PM",event:"Fed Meeting Minutes",impact:"HIGH",color:C.red},
+    {time:"All Day",event:"No Major News Today",impact:"LOW",color:C.green},
+    {time:"9:45 AM",event:"PMI Data Release",impact:"MED",color:C.yellow},
+    {time:"8:30 AM",event:"CPI Inflation Report",impact:"HIGH",color:C.red},
+    {time:"All Day",event:"No Major News Today",impact:"LOW",color:C.green},
+  ];
+  return events[new Date().getDay()];
+}
+
+// ── UI Components ─────────────────────────────────────────
+function Card({children,mt=0}){
+  return <div style={{margin:`${mt}px 16px 14px`,background:C.panel,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden"}}>{children}</div>;
+}
+function CardHead({title,sub}){
+  return(
+    <div style={{padding:"10px 16px",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+      <span style={{fontSize:12,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em"}}>{title}</span>
+      {sub&&<span style={{fontSize:11,color:C.muted}}>{sub}</span>}
+    </div>
+  );
+}
+function Row({label,sub,val,valColor,last}){
+  return(
+    <div style={{padding:"13px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",borderBottom:last?"none":`1px solid ${C.border}`}}>
+      <div>
+        <div style={{fontSize:14,fontWeight:600,color:C.bright,marginBottom:sub?3:0}}>{label}</div>
+        {sub&&<div style={{fontSize:12,color:C.muted,maxWidth:240,lineHeight:1.4}}>{sub}</div>}
+      </div>
+      {val!==undefined&&<div style={{fontSize:17,fontWeight:700,color:valColor||C.bright,marginLeft:12,whiteSpace:"nowrap"}}>{val}</div>}
+    </div>
+  );
+}
+function Badge({text,color}){
+  return <span style={{background:`${color}22`,color,borderRadius:6,padding:"3px 10px",fontSize:13,fontWeight:700,whiteSpace:"nowrap"}}>{text}</span>;
+}
+function SignalCard({signal,ticker}){
+  if(!signal)return(
+    <div style={{margin:"14px 16px",background:C.panel,border:`1px solid ${C.border}`,borderRadius:12,padding:16,fontSize:14,color:C.muted,textAlign:"center"}}>
+      Select an expiry above to load signal
+    </div>
+  );
+  return(
+    <div style={{background:`${signal.color}15`,border:`2px solid ${signal.color}`,borderRadius:12,padding:"16px 18px",margin:"14px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+      <div>
+        <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:"0.1em",marginBottom:6}}>ORDER FLOW SIGNAL · {ticker}</div>
+        <div style={{fontSize:24,fontWeight:800,color:signal.color,marginBottom:8}}>{signal.icon} {signal.label}</div>
+        <div style={{display:"flex",gap:4,alignItems:"center"}}>
+          {[1,2,3,4,5].map(i=><div key={i} style={{width:10,height:10,borderRadius:3,background:i<=signal.strength?signal.color:C.border}}/>)}
+          <span style={{fontSize:11,color:C.muted,marginLeft:8}}>CONVICTION</span>
         </div>
-      );
-    }
-    function Row({label,sub,val,valColor,last}){
-      return(
-        <div style={{padding:"13px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",borderBottom:last?"none":`1px solid ${C.border}`}}>
-          <div>
-            <div style={{fontSize:14,fontWeight:600,color:C.bright,marginBottom:sub?3:0}}>{label}</div>
-            {sub&&<div style={{fontSize:12,color:C.muted,maxWidth:240,lineHeight:1.4}}>{sub}</div>}
+      </div>
+      <div style={{fontSize:40,color:signal.color,opacity:0.3}}>{signal.icon}</div>
+    </div>
+  );
+}
+
+// ── Main App ──────────────────────────────────────────────
+function App(){
+  const [ticker,setTicker] = React.useState("SPY");
+  const [quote,setQuote]   = React.useState({price:578,change:0,pct:0});
+  const [chain,setChain]   = React.useState([]);
+  const [history,setHistory] = React.useState([]);
+  const [signal,setSignal] = React.useState(null);
+  const [context,setContext] = React.useState(null);
+  const [overall,setOverall] = React.useState(null);
+  const [exps,setExps]     = React.useState([]);
+  const [selExp,setSelExp] = React.useState(null);
+  const [loading,setLoading] = React.useState(true);
+  const [error,setError]   = React.useState(null);
+  const [tab,setTab]       = React.useState("overview");
+  const [lastUpdate,setLastUpdate] = React.useState(null);
+  const timer = React.useRef(null);
+  const tod = getTimeOfDay();
+  const news = getTodayNews();
+
+  const refresh = async(sym,exp) => {
+    try{
+      const [q,ch,hist] = await Promise.all([getQuote(sym),exp?getChain(sym,exp):Promise.resolve([]),getHistory(sym)]);
+      const sig = buildSignal(ch,q.price);
+      const ctx = buildContext(q.price,hist,sym);
+      setQuote(q);setChain(ch);setHistory(hist);
+      setSignal(sig);setContext(ctx);
+      setOverall(computeOverall(sig,ctx,tod));
+      setLastUpdate(new Date().toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"}));
+      setError(null);
+    }catch(e){setError("Could not load live data.");}
+    finally{setLoading(false);}
+  };
+
+  const setup = async(sym) => {
+    setLoading(true);
+    const e = await getExpirations(sym);
+    setExps(e);
+    const first=e[1]||e[0];
+    setSelExp(first);
+    await refresh(sym,first);
+  };
+
+  React.useEffect(()=>{setup("SPY");},[]);
+
+  React.useEffect(()=>{
+    clearInterval(timer.current);
+    if(selExp){timer.current=setInterval(()=>refresh(ticker,selExp),30000);}
+    return()=>clearInterval(timer.current);
+  },[ticker,selExp]);
+
+  const switchTicker = async(tk) => {
+    setTicker(tk);setLoading(true);setSignal(null);setContext(null);
+    const e = await getExpirations(tk);
+    setExps(e);
+    const first=e[1]||e[0];
+    setSelExp(first);
+    await refresh(tk,first);
+  };
+
+  const handleExpChange = async(e) => {
+    setSelExp(e);setLoading(true);
+    await refresh(ticker,e);
+  };
+
+  const up = quote.change>=0;
+  const unusual=[...(signal?.ucalls||[]),...(signal?.uputs||[])].sort((a,b)=>(b.volume||0)-(a.volume||0)).slice(0,10);
+  const tabs=["overview","flow","dark pools"];
+
+  if(loading)return(
+    <div style={{background:C.bg,minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",fontFamily:font}}>
+      <div style={{fontSize:32,marginBottom:16}}>🐋</div>
+      <div style={{fontSize:14,color:C.muted}}>Loading live data...</div>
+    </div>
+  );
+
+  return(
+    <div style={{background:C.bg,minHeight:"100vh",fontFamily:font,color:C.text,maxWidth:480,margin:"0 auto"}}>
+
+      {/* HEADER */}
+      <div style={{background:C.panel,borderBottom:`1px solid ${C.border}`,padding:"16px 18px 14px",position:"sticky",top:0,zIndex:100}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <span style={{fontSize:13,fontWeight:700,letterSpacing:"0.15em",color:C.muted,textTransform:"uppercase"}}>Order Flow</span>
+          <div style={{display:"flex",alignItems:"center",gap:6}}>
+            {error
+              ?<span style={{fontSize:12,color:C.red,fontWeight:600}}>⚠ OFFLINE</span>
+              :<><span style={{width:8,height:8,borderRadius:"50%",background:C.green,display:"inline-block",animation:"pulse 1.4s ease-in-out infinite"}}/><span style={{fontSize:12,color:C.green,fontWeight:600}}>LIVE</span></>
+            }
           </div>
-          {val!==undefined&&<div style={{fontSize:17,fontWeight:700,color:valColor||C.bright,marginLeft:12,whiteSpace:"nowrap"}}>{val}</div>}
         </div>
-      );
-    }
 
-    function App(){
-      const [quote,setQuote] = React.useState({price:578,change:0,pct:0});
-      const [chain,setChain] = React.useState([]);
-      const [signal,setSignal] = React.useState(null);
-      const [exps,setExps] = React.useState([]);
-      const [selExp,setSelExp] = React.useState(null);
-      const [loading,setLoading] = React.useState(true);
-      const [error,setError] = React.useState(null);
-      const [tab,setTab] = React.useState("overview");
-      const [lastUpdate,setLastUpdate] = React.useState(null);
-      const timer = React.useRef(null);
-
-      const refresh = async(exp) => {
-        try{
-          const [q,ch] = await Promise.all([getSPYQuote(),exp?getChain(exp):Promise.resolve([])]);
-          setQuote(q);setChain(ch);setSignal(buildSignal(ch,q.price));
-          setLastUpdate(new Date().toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"}));
-          setError(null);
-        }catch{setError("Could not load data.");}
-        finally{setLoading(false);}
-      };
-
-      React.useEffect(()=>{
-        (async()=>{
-          setLoading(true);
-          const e = await getExpirations();
-          setExps(e);
-          const first=e[1]||e[0];
-          setSelExp(first);
-          await refresh(first);
-        })();
-      },[]);
-
-      React.useEffect(()=>{
-        clearInterval(timer.current);
-        if(selExp){timer.current=setInterval(()=>refresh(selExp),30000);}
-        return()=>clearInterval(timer.current);
-      },[selExp]);
-
-      const tod=getTimeOfDay();
-      const up=quote.change>=0;
-      const unusual=[...(signal?.ucalls||[]),...(signal?.uputs||[])].sort((a,b)=>(b.volume||0)-(a.volume||0)).slice(0,10);
-      const tabs=["overview","flow","unusual"];
-
-      if(loading)return(
-        <div style={{background:C.bg,minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",fontFamily:font}}>
-          <div style={{fontSize:28,marginBottom:16}}>🐋</div>
-          <div style={{fontSize:14,color:C.muted}}>Loading live SPY data...</div>
+        {/* Ticker toggle */}
+        <div style={{display:"flex",gap:8,marginBottom:10}}>
+          {["SPY","SPX"].map(tk=>(
+            <button key={tk} onClick={()=>switchTicker(tk)} style={{
+              padding:"6px 18px",borderRadius:8,fontSize:14,fontWeight:700,fontFamily:font,cursor:"pointer",
+              background:ticker===tk?C.blue:"transparent",color:ticker===tk?"#000":C.muted,
+              border:`2px solid ${ticker===tk?C.blue:C.border}`,transition:"all 0.15s",
+            }}>{tk}</button>
+          ))}
+          <span style={{fontSize:11,color:C.muted,alignSelf:"center"}}>
+            {ticker==="SPY"?"Beginner friendly":"Advanced"}
+          </span>
         </div>
-      );
 
-      return(
-        <div style={{background:C.bg,minHeight:"100vh",fontFamily:font,color:C.text,maxWidth:480,margin:"0 auto"}}>
-          <div style={{background:C.panel,borderBottom:`1px solid ${C.border}`,padding:"16px 18px 14px",position:"sticky",top:0,zIndex:100}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-              <span style={{fontSize:13,fontWeight:700,letterSpacing:"0.15em",color:C.muted,textTransform:"uppercase"}}>SPY Order Flow</span>
-              <div style={{display:"flex",alignItems:"center",gap:6}}>
-                {error
-                  ?<span style={{fontSize:12,color:C.red,fontWeight:600}}>⚠ OFFLINE</span>
-                  :<><span style={{width:8,height:8,borderRadius:"50%",background:C.green,display:"inline-block",animation:"pulse 1.4s ease-in-out infinite"}}/><span style={{fontSize:12,color:C.green,fontWeight:600}}>LIVE</span></>
-                }
-              </div>
+        {/* Price */}
+        <div style={{display:"flex",alignItems:"baseline",gap:10,marginBottom:4}}>
+          <span style={{fontSize:32,fontWeight:800,color:C.bright,letterSpacing:"-0.03em"}}>${quote.price.toFixed(2)}</span>
+          <span style={{fontSize:15,fontWeight:600,color:up?C.green:C.red}}>{up?"▲":"▼"} {Math.abs(quote.change).toFixed(2)} ({Math.abs(quote.pct).toFixed(2)}%)</span>
+        </div>
+        <div style={{fontSize:12,color:C.muted,marginBottom:10}}>
+          {ticker} · 1 contract = ${(quote.price*100).toLocaleString()} exposure · updated {lastUpdate}
+        </div>
+
+        {/* Expiry selector */}
+        {exps.length>0&&(
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <span style={{fontSize:12,color:C.muted}}>Expiry:</span>
+            <select value={selExp||""} onChange={e=>handleExpChange(e.target.value)} style={{
+              background:C.bg,color:C.bright,border:`1px solid ${C.border}`,
+              borderRadius:6,padding:"4px 8px",fontSize:12,fontFamily:font,cursor:"pointer",
+            }}>
+              {exps.slice(0,8).map(e=><option key={e} value={e}>{e}</option>)}
+            </select>
+            <span style={{fontSize:11,color:C.muted}}>Pick 7–14 days out</span>
+          </div>
+        )}
+      </div>
+
+      {/* TABS */}
+      <div style={{display:"flex",background:C.panel,borderBottom:`1px solid ${C.border}`,position:"sticky",top:172,zIndex:99}}>
+        {tabs.map(t=>(
+          <button key={t} onClick={()=>setTab(t)} style={{
+            flex:1,padding:"12px 0",fontSize:12,fontWeight:tab===t?700:500,
+            textAlign:"center",cursor:"pointer",textTransform:"capitalize",
+            color:tab===t?C.bright:C.muted,
+            borderBottom:tab===t?`2px solid ${C.blue}`:"2px solid transparent",
+            background:"none",border:"none",fontFamily:font,
+          }}>{t}</button>
+        ))}
+      </div>
+
+      {error&&<div style={{margin:"14px 16px",background:`${C.red}15`,border:`1px solid ${C.red}`,borderRadius:10,padding:"12px 16px",fontSize:13,color:C.text}}>⚠️ {error} Showing last known data.</div>}
+
+      {/* ── OVERVIEW TAB ── */}
+      {tab==="overview"&&(
+        <>
+          {/* Big Picture */}
+          {overall&&(
+            <div style={{background:`${overall.color}15`,border:`2px solid ${overall.color}`,borderRadius:12,padding:"16px 18px",margin:"14px 16px"}}>
+              <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:"0.1em",marginBottom:6}}>BIG PICTURE TODAY</div>
+              <div style={{fontSize:18,fontWeight:800,color:overall.color,marginBottom:8}}>{overall.label}</div>
+              <div style={{fontSize:13,color:C.text,lineHeight:1.7}}>{overall.desc}</div>
             </div>
-            <div style={{display:"flex",alignItems:"baseline",gap:10,marginBottom:4}}>
-              <span style={{fontSize:32,fontWeight:800,color:C.bright,letterSpacing:"-0.03em"}}>${quote.price.toFixed(2)}</span>
-              <span style={{fontSize:15,fontWeight:600,color:up?C.green:C.red}}>{up?"▲":"▼"} {Math.abs(quote.change).toFixed(2)} ({Math.abs(quote.pct).toFixed(2)}%)</span>
-            </div>
-            <div style={{fontSize:12,color:C.muted}}>SPY · updated {lastUpdate}</div>
-            {exps.length>0&&(
-              <div style={{marginTop:10,display:"flex",alignItems:"center",gap:8}}>
-                <span style={{fontSize:12,color:C.muted}}>Expiry:</span>
-                <select value={selExp||""} onChange={e=>{setSelExp(e.target.value);setLoading(true);refresh(e.target.value);}} style={{background:C.bg,color:C.bright,border:`1px solid ${C.border}`,borderRadius:6,padding:"4px 8px",fontSize:12,fontFamily:font}}>
-                  {exps.slice(0,8).map(e=><option key={e} value={e}>{e}</option>)}
-                </select>
-                <span style={{fontSize:11,color:C.muted}}>Pick 7–14 days out</span>
-              </div>
-            )}
-          </div>
-
-          <div style={{display:"flex",background:C.panel,borderBottom:`1px solid ${C.border}`,position:"sticky",top:130,zIndex:99}}>
-            {tabs.map(t=>(
-              <button key={t} onClick={()=>setTab(t)} style={{flex:1,padding:"12px 0",fontSize:12,fontWeight:tab===t?700:500,textAlign:"center",cursor:"pointer",textTransform:"capitalize",color:tab===t?C.bright:C.muted,borderBottom:tab===t?`2px solid ${C.blue}`:"2px solid transparent",background:"none",border:"none",fontFamily:font}}>
-                {t==="unusual"?"Unusual Flow":t}
-              </button>
-            ))}
-          </div>
-
-          {error&&<div style={{margin:"14px 16px",background:`${C.red}15`,border:`1px solid ${C.red}`,borderRadius:10,padding:"12px 16px",fontSize:13,color:C.text}}>⚠️ {error}</div>}
-
-          {tab==="overview"&&(
-            <>
-              {signal?(
-                <div style={{background:`${signal.color}15`,border:`2px solid ${signal.color}`,borderRadius:12,padding:"16px 18px",margin:"14px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                  <div>
-                    <div style={{fontSize:11,fontWeight:700,color:C.muted,letterSpacing:"0.1em",marginBottom:6}}>ORDER FLOW SIGNAL · SPY</div>
-                    <div style={{fontSize:24,fontWeight:800,color:signal.color,marginBottom:8}}>{signal.icon} {signal.label}</div>
-                    <div style={{display:"flex",gap:4,alignItems:"center"}}>
-                      {[1,2,3,4,5].map(i=><div key={i} style={{width:10,height:10,borderRadius:3,background:i<=signal.strength?signal.color:C.border}}/>)}
-                      <span style={{fontSize:11,color:C.muted,marginLeft:8}}>CONVICTION</span>
-                    </div>
-                  </div>
-                  <div style={{fontSize:40,color:signal.color,opacity:0.3}}>{signal.icon}</div>
-                </div>
-              ):(
-                <div style={{margin:"14px 16px",background:C.panel,border:`1px solid ${C.border}`,borderRadius:12,padding:16,fontSize:14,color:C.muted,textAlign:"center"}}>Select an expiry to load signal</div>
-              )}
-              <Card>
-                <CardHead title="Time of Day"/>
-                <div style={{padding:"14px 16px"}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-                    <span style={{fontSize:16,fontWeight:700,color:C.bright}}>{tod.label}</span>
-                    <span style={{background:`${tod.color}22`,color:tod.color,borderRadius:6,padding:"3px 10px",fontSize:12,fontWeight:700}}>{new Date().toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"})}</span>
-                  </div>
-                  <div style={{fontSize:13,color:C.text,lineHeight:1.7}}>{tod.tip}</div>
-                </div>
-              </Card>
-              {signal&&(
-                <Card>
-                  <CardHead title="What To Do"/>
-                  <div style={{padding:16,fontSize:14,lineHeight:1.8,color:C.text}}>{getAdvice(signal.label)}</div>
-                  <div style={{padding:"0 16px 14px",fontSize:12,color:C.muted}}>💡 Never risk more than $100–150 per trade while learning.</div>
-                </Card>
-              )}
-            </>
           )}
 
-          {tab==="flow"&&signal&&(
-            <>
-              <Card mt={14}>
-                <CardHead title="Options Flow" sub={selExp}/>
-                <Row label="Put/Call Ratio" sub={signal.pcr<0.8?"Very Bullish":signal.pcr<1.0?"Bullish":signal.pcr<1.2?"Neutral":"Bearish"} val={signal.pcr.toFixed(2)} valColor={signal.pcr<0.9?C.green:signal.pcr>1.2?C.red:C.yellow}/>
-                <Row label="Call Volume" val={signal.cv.toLocaleString()} valColor={C.green}/>
-                <Row label="Put Volume" val={signal.pv.toLocaleString()} valColor={C.red}/>
-                <Row label="Call Open Interest" val={signal.coi.toLocaleString()} valColor={C.green}/>
-                <Row label="Put Open Interest" val={signal.poi.toLocaleString()} valColor={C.red} last/>
-              </Card>
-              <Card>
-                <CardHead title="Unusual Activity"/>
-                <Row label="Unusual Call Spikes" val={signal.ucalls.length} valColor={C.green}/>
-                <Row label="Unusual Put Spikes" val={signal.uputs.length} valColor={C.red} last/>
-              </Card>
-            </>
-          )}
+          {/* Time of Day */}
+          <Card>
+            <CardHead title="Time of Day"/>
+            <div style={{padding:"14px 16px"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                <span style={{fontSize:16,fontWeight:700,color:C.bright}}>{tod.label}</span>
+                <Badge text={new Date().toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"})} color={tod.color}/>
+              </div>
+              <div style={{fontSize:13,color:C.text,lineHeight:1.7}}>{tod.tip}</div>
+            </div>
+          </Card>
 
-          {tab==="unusual"&&(
-            <Card mt={14}>
-              <CardHead title="Unusual Options Flow" sub="SPY · Live"/>
-              {unusual.length===0?(
-                <div style={{padding:20,textAlign:"center",fontSize:13,color:C.muted}}>No unusual flow detected. Try a different expiry.</div>
-              ):unusual.map((o,i)=>(
-                <div key={i} style={{padding:"12px 16px",borderBottom:i<unusual.length-1?`1px solid ${C.border}`:"none"}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-                    <span style={{fontSize:15,fontWeight:700,color:C.bright}}>SPY ${o.strike} {selExp} {o.option_type?.toUpperCase()}</span>
-                    <span style={{background:`${o.option_type==="call"?C.green:C.red}22`,color:o.option_type==="call"?C.green:C.red,borderRadius:6,padding:"3px 10px",fontSize:13,fontWeight:700}}>{o.option_type?.toUpperCase()}</span>
-                  </div>
-                  <div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:C.muted}}>
-                    <span>Vol: {(o.volume||0).toLocaleString()} · OI: {(o.open_interest||0).toLocaleString()}</span>
-                    <span style={{color:C.purple,fontWeight:600}}>{o.ask?`$${(o.ask*100).toFixed(0)}/contract`:""}</span>
-                  </div>
+          {/* News Today */}
+          <Card>
+            <CardHead title="News Today" sub="Economic Calendar"/>
+            <div style={{padding:"14px 16px"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                <div>
+                  <div style={{fontSize:15,fontWeight:700,color:C.bright,marginBottom:3}}>{news.event}</div>
+                  <div style={{fontSize:12,color:C.muted}}>{news.time}</div>
                 </div>
-              ))}
+                <Badge text={`${news.impact} IMPACT`} color={news.color}/>
+              </div>
+              {news.impact==="HIGH"&&(
+                <div style={{background:`${C.orange}15`,border:`1px solid ${C.orange}`,borderRadius:8,padding:"10px 12px",marginTop:10,fontSize:12,color:C.text,lineHeight:1.6}}>
+                  ⚠️ High impact news can cause sudden unpredictable moves. Many traders avoid trading 30 min before and after major releases.
+                </div>
+              )}
+            </div>
+          </Card>
+
+          {/* Overall Trend */}
+          {context&&(
+            <Card>
+              <CardHead title="Overall Trend" sub="20 & 50 day avg"/>
+              <div style={{padding:"14px 16px",borderBottom:`1px solid ${C.border}`}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                  <span style={{fontSize:16,fontWeight:700,color:C.bright}}>{context.trend}</span>
+                  <Badge text={context.trend} color={context.trendColor}/>
+                </div>
+                <div style={{fontSize:13,color:C.text,lineHeight:1.7}}>{context.trendDesc}</div>
+              </div>
+              <div style={{padding:"12px 16px",display:"flex",gap:12}}>
+                {[
+                  {label:"20-Day Avg",val:context.ma20?context.ma20.toFixed(2):"Loading...",above:context.aboveMa20},
+                  {label:"50-Day Avg",val:context.ma50?context.ma50.toFixed(2):"Loading...",above:context.aboveMa50},
+                ].map((m,i)=>(
+                  <div key={i} style={{flex:1,background:C.bg,borderRadius:8,padding:"10px 12px"}}>
+                    <div style={{fontSize:11,color:C.muted,marginBottom:4}}>{m.label}</div>
+                    <div style={{fontSize:15,fontWeight:700,color:C.bright}}>{m.val}</div>
+                    <div style={{fontSize:11,color:m.above?C.green:C.red,marginTop:3}}>{m.above?"▲ Price above":"▼ Price below"}</div>
+                  </div>
+                ))}
+              </div>
             </Card>
           )}
 
-          <div style={{padding:16,textAlign:"center",fontSize:11,color:C.muted,lineHeight:1.8}}>
-            LIVE DATA VIA TRADIER · NOT FINANCIAL ADVICE
-          </div>
-        </div>
-      );
-    }
+          {/* Key Price Levels */}
+          {context&&(
+            <Card>
+              <CardHead title="Key Price Levels" sub="Where price may stop"/>
+              <div style={{padding:"12px 16px"}}>
+                {[
+                  {label:"Resistance 2 — strong ceiling",val:context.resist2.toFixed(2),color:C.red,desc:"Strong area where selling often picks up"},
+                  {label:"Resistance 1 — near ceiling",val:context.resist1.toFixed(2),color:C.orange,desc:"First area above where price may struggle"},
+                  {label:`▶ Current Price`,val:quote.price.toFixed(2),color:C.blue,desc:"Where we are right now",highlight:true},
+                  {label:"Support 1 — near floor",val:context.support1.toFixed(2),color:C.yellow,desc:"First area below where buyers may step in"},
+                  {label:"Support 2 — strong floor",val:context.support2.toFixed(2),color:C.green,desc:"Strong area where buying often picks up"},
+                ].map((level,i)=>(
+                  <div key={i} style={{
+                    padding:"10px 12px",borderRadius:8,marginBottom:6,
+                    background:level.highlight?`${C.blue}18`:C.bg,
+                    border:`1px solid ${level.highlight?C.blue:C.border}`,
+                  }}>
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}>
+                      <span style={{fontSize:13,fontWeight:level.highlight?700:500,color:level.highlight?C.bright:C.text}}>{level.label}</span>
+                      <span style={{fontSize:15,fontWeight:700,color:level.color}}>{level.val}</span>
+                    </div>
+                    <div style={{fontSize:11,color:C.muted}}>{level.desc}</div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+        </>
+      )}
 
-    ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
-  </script>
+      {/* ── FLOW TAB ── */}
+      {tab==="flow"&&(
+        <>
+          <SignalCard signal={signal} ticker={ticker}/>
+
+          {signal&&(
+            <>
+              <Card>
+                <CardHead title="Options Flow" sub={selExp}/>
+                <Row label="Put/Call Ratio (PCR)"
+                  sub={signal.pcr<0.8?"Very Bullish — way more calls than puts":signal.pcr<1.0?"Bullish — more calls than puts":signal.pcr<1.2?"Neutral — balanced":"Bearish — more puts than calls"}
+                  val={signal.pcr.toFixed(2)} valColor={signal.pcr<0.9?C.green:signal.pcr>1.2?C.red:C.yellow}/>
+                <Row label="Call Volume" sub="Total calls traded near current price" val={signal.cv.toLocaleString()} valColor={C.green}/>
+                <Row label="Put Volume" sub="Total puts traded near current price" val={signal.pv.toLocaleString()} valColor={C.red}/>
+                <Row label="Unusual Call Spikes" sub="Volume way above normal" val={signal.ucalls.length} valColor={C.green}/>
+                <Row label="Unusual Put Spikes" sub="Volume way above normal" val={signal.uputs.length} valColor={C.red} last/>
+              </Card>
+
+              <Card>
+                <CardHead title="What To Do"/>
+                <div style={{padding:16,fontSize:14,lineHeight:1.8,color:C.text}}>{getAdvice(signal.label,ticker)}</div>
+                <div style={{padding:"0 16px 14px",fontSize:12,color:C.muted,lineHeight:1.6}}>
+                  💡 Never risk more than $100–150 per trade while learning. Protect your capital first.
+                </div>
+              </Card>
+            </>
+          )}
+
+          {/* Unusual flow list */}
+          <Card>
+            <CardHead title="Unusual Options Flow" sub={`${ticker} · Live`}/>
+            {unusual.length===0?(
+              <div style={{padding:20,textAlign:"center",fontSize:13,color:C.muted}}>No unusual flow detected. Market may be closed or try a different expiry.</div>
+            ):unusual.map((o,i)=>(
+              <div key={i} style={{padding:"12px 16px",borderBottom:i<unusual.length-1?`1px solid ${C.border}`:"none",animation:i===0?"slideIn 0.3s ease":"none"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                  <span style={{fontSize:15,fontWeight:700,color:C.bright}}>{ticker} ${o.strike} {selExp} {o.option_type?.toUpperCase()}</span>
+                  <Badge text={o.option_type?.toUpperCase()} color={o.option_type==="call"?C.green:C.red}/>
+                </div>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:C.muted}}>
+                  <span>Vol: {(o.volume||0).toLocaleString()} · OI: {(o.open_interest||0).toLocaleString()}</span>
+                  <span style={{color:C.purple,fontWeight:600}}>{o.ask?`$${(o.ask*100).toFixed(0)}/contract`:""}</span>
+                </div>
+              </div>
+            ))}
+          </Card>
+        </>
+      )}
+
+      {/* ── DARK POOLS TAB (simulated — real dark pool data requires paid feed) ── */}
+      {tab==="dark pools"&&(
+        <Card mt={14}>
+          <CardHead title="Dark Pool Prints" sub={`${ticker} · Simulated`}/>
+          <div style={{padding:"10px 16px",background:`${C.yellow}10`,borderBottom:`1px solid ${C.border}`}}>
+            <div style={{fontSize:12,color:C.yellow,lineHeight:1.6}}>
+              ⚠️ Real dark pool data requires a paid feed (Unusual Whales). These are simulated for reference.
+            </div>
+          </div>
+          {Array.from({length:10},(_,i)=>({
+            price:+(quote.price+rand(-quote.price*0.01,quote.price*0.012)).toFixed(2),
+            size:Math.floor(rand(500,50000)),
+            side:Math.random()>0.5?"BUY":"SELL",
+            time:new Date(Date.now()-i*rand(60000,300000)).toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"}),
+          })).map((d,i)=>(
+            <div key={i} style={{padding:"12px 16px",borderBottom:i<9?`1px solid ${C.border}`:"none"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                <span style={{fontSize:16,fontWeight:700,color:C.bright}}>${d.price.toLocaleString()}</span>
+                <Badge text={d.side} color={d.side==="BUY"?C.green:C.red}/>
+              </div>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:C.muted}}>
+                <span>{d.size.toLocaleString()} shares</span>
+                <span>{d.time}</span>
+              </div>
+            </div>
+          ))}
+        </Card>
+      )}
+
+      <div style={{padding:16,textAlign:"center",fontSize:11,color:C.muted,lineHeight:1.8}}>
+        LIVE OPTIONS DATA VIA TRADIER · NOT FINANCIAL ADVICE
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
 </body>
 </html>
