@@ -167,14 +167,82 @@ function getAdvice(label,ticker){
 function getTimeOfDay(){
   const now=new Date(new Date().toLocaleString("en-US",{timeZone:"America/Los_Angeles"}));
   const h=now.getHours(),m=now.getMinutes();
-  if(h<6||(h===6&&m<30))return{label:"Pre-Market",color:C.yellow,tip:"Market not open yet. Wait for 6:30 AM Pacific before trading."};
-  if(h===6&&m>=30)return{label:"Market Open",color:C.orange,tip:"Very volatile right now. Many traders wait 15–30 min after open."};
-  if(h>=7&&h<9)return{label:"Morning Session",color:C.green,tip:"Best time to trade. Volume and trends are usually clear."};
-  if(h>=9&&h<11)return{label:"Lunch Hours",color:C.yellow,tip:"Volume drops at lunch. Signals are less reliable right now."};
-  if(h>=11&&h<12)return{label:"Afternoon",color:C.green,tip:"Volume picking back up. Good window if signal is clear."};
-  if(h>=12&&h<13)return{label:"Power Hour",color:C.orange,tip:"Big moves but also big reversals. Market closes at 1:00 PM Pacific."};
-  if(h>=13)return{label:"After Hours",color:C.muted,tip:"Market closed. Review today and plan for tomorrow."};
-  return{label:"After Hours",color:C.muted,tip:"Market closed. Review today and plan for tomorrow."};
+  const mins=h*60+m;
+
+  // Global Session (overnight): 5:15 PM – 6:25 AM Pacific
+  const inGlobal = mins>=1035||mins<385;
+  // Curb Session: 1:15 PM – 2:00 PM Pacific
+  const inCurb = mins>=795&&mins<840;
+  // Pre-Market: 6:25 AM – 6:30 AM Pacific
+  const inPreOpen = mins>=385&&mins<390;
+  // Market Open volatility: 6:30 AM – 7:00 AM
+  const inOpen = mins>=390&&mins<420;
+  // Morning Session: 7:00 AM – 9:00 AM
+  const inMorning = mins>=420&&mins<540;
+  // Lunch: 9:00 AM – 11:00 AM
+  const inLunch = mins>=540&&mins<660;
+  // Afternoon: 11:00 AM – 12:00 PM
+  const inAfternoon = mins>=660&&mins<720;
+  // Power Hour: 12:00 PM – 1:15 PM
+  const inPower = mins>=720&&mins<795;
+  // After Hours: 2:00 PM – 5:15 PM
+  const inAfterHours = mins>=840&&mins<1035;
+
+  if(inGlobal)return{
+    label:"🌙 Global Session",
+    color:C.purple,
+    tip:"SPXW Global Trading Hours active on Robinhood (5:15 PM – 6:25 AM Pacific). Very low liquidity and wide spreads. High risk — experienced traders only. Avoid large positions.",
+    session:"GLOBAL",
+  };
+  if(inCurb)return{
+    label:"⚡ Curb Session",
+    color:C.blue,
+    tip:"SPX/SPXW Curb Session active on Robinhood (1:15 PM – 2:00 PM Pacific). Lower liquidity than regular hours. Use caution and smaller position sizes.",
+    session:"CURB",
+  };
+  if(inPreOpen)return{
+    label:"Pre-Market",
+    color:C.yellow,
+    tip:"Market opens in minutes at 6:30 AM Pacific. Get ready.",
+    session:"PRE",
+  };
+  if(inOpen)return{
+    label:"Market Open",
+    color:C.orange,
+    tip:"Very volatile right now. Many traders wait 15–30 min after the 6:30 AM open before entering.",
+    session:"REGULAR",
+  };
+  if(inMorning)return{
+    label:"Morning Session",
+    color:C.green,
+    tip:"Best time to trade. Volume and trends are usually clear. Regular session 6:30 AM – 1:15 PM Pacific.",
+    session:"REGULAR",
+  };
+  if(inLunch)return{
+    label:"Lunch Hours",
+    color:C.yellow,
+    tip:"Volume drops at lunch. Signals are less reliable right now. Wait for afternoon session.",
+    session:"REGULAR",
+  };
+  if(inAfternoon)return{
+    label:"Afternoon",
+    color:C.green,
+    tip:"Volume picking back up. Good window if signal is clear.",
+    session:"REGULAR",
+  };
+  if(inPower)return{
+    label:"Power Hour",
+    color:C.orange,
+    tip:"Last stretch before close at 1:15 PM Pacific. Big moves but also big reversals. Be careful.",
+    session:"REGULAR",
+  };
+  if(inAfterHours)return{
+    label:"After Hours",
+    color:C.muted,
+    tip:"Regular market closed. Curb session starts at 1:15 PM, Global session at 5:15 PM Pacific.",
+    session:"CLOSED",
+  };
+  return{label:"After Hours",color:C.muted,tip:"Market closed.",session:"CLOSED"};
 }
 
 // Simulated news events (rotate by day of week)
